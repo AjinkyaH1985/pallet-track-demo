@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f4c81">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Pallet Track">
+  <title>Pallet Track</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="stylesheet" href="style.css?v=3">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <img src="icon.svg" alt="" width="28" height="28">
+    <div>
+      <div class="brand-name">Pallet Track</div>
+    </div>
+  </div>
+  <div class="who" id="whoLabel" title="Change in Settings"></div>
+</header>
+
+<main>
+
+  <!-- ============ SCAN ============ -->
+  <section class="tab" id="tab-scan" data-tab="scan">
+
+    <div class="card">
+      <label class="field-label" for="locSelect">1. Where are you?</label>
+      <div class="row">
+        <select id="locSelect" class="big-select"></select>
+      </div>
+      <p class="hint">Tip: scan a location card to set this.</p>
+    </div>
+
+    <div class="card">
+      <div class="field-label">2. What are you doing?</div>
+      <div class="action-row">
+        <button class="action-btn out" id="btnLoadOut" type="button">
+          <span class="action-icon">⬆</span>
+          <span class="action-title">LOAD OUT</span>
+          <span class="action-sub">Going with goods</span>
+        </button>
+        <button class="action-btn in" id="btnUnloadIn" type="button">
+          <span class="action-icon">⬇</span>
+          <span class="action-title">UNLOAD IN</span>
+          <span class="action-sub">Coming back</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="card scanner-card">
+      <div class="field-label">3. Scan pallets</div>
+      <div class="scanner-wrap" id="scannerWrap">
+        <div id="reader" class="reader"></div>
+        <div class="scanner-idle" id="scannerIdle">
+          <button class="btn primary xl" id="btnStartCam" type="button">📷 Start camera</button>
+          <p class="hint light" id="camHint">Point the camera at the QR on the pallet.</p>
+        </div>
+        <div class="scan-flash" id="scanFlash"></div>
+      </div>
+      <div class="cam-tools" id="camTools" hidden>
+        <button class="btn small" id="btnTorch" type="button" hidden>🔦 Light</button>
+        <label class="zoom" id="zoomWrap" hidden>Zoom <input type="range" id="zoomRange"></label>
+        <button class="btn small ghost" id="btnStopCam" type="button">Stop camera</button>
+      </div>
+
+      <div class="last-scan" id="lastScan" hidden></div>
+
+      <form class="manual" id="manualForm" autocomplete="off">
+        <input id="manualInput" class="input" type="text" inputmode="text" autocapitalize="characters"
+               spellcheck="false" placeholder="Type pallet ID, e.g. PLT-7K3M9QX" aria-label="Type pallet ID">
+        <button class="btn" type="submit">Add</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="list-head">
+        <div class="field-label">Scanned in this session <span class="count-pill" id="sessionCount">0</span></div>
+        <button class="btn small ghost" id="btnClearSession" type="button" hidden>Clear list</button>
+      </div>
+      <ul class="session-list" id="sessionList"></ul>
+      <p class="empty" id="sessionEmpty">No pallets scanned yet.</p>
+    </div>
+
+    <details class="card details" id="moreDetails">
+      <summary>4. More details <span class="hint">(optional)</span></summary>
+      <div class="field">
+        <div class="field-label">Condition for new scans</div>
+        <div class="seg" id="condSeg">
+          <button type="button" class="seg-btn on" data-cond="OK">OK</button>
+          <button type="button" class="seg-btn" data-cond="DAMAGED">Damaged</button>
+        </div>
+        <p class="hint">You can also change each pallet in the list.</p>
+      </div>
+      <div class="field">
+        <label class="field-label" for="fVehicle">Vehicle number</label>
+        <input id="fVehicle" class="input" type="text" autocapitalize="characters" placeholder="MH12 AB 1234">
+      </div>
+      <div class="field">
+        <label class="field-label" for="fParty" id="fPartyLabel">Destination / Came from</label>
+        <input id="fParty" class="input" type="text" placeholder="Customer or place name" list="partyList">
+        <datalist id="partyList"></datalist>
+      </div>
+      <div class="field">
+        <label class="field-label" for="fChallan">Challan / Invoice no.</label>
+        <input id="fChallan" class="input" type="text" placeholder="CH-1234">
+      </div>
+      <div class="field">
+        <label class="field-label" for="fRemarks">Remarks</label>
+        <textarea id="fRemarks" class="input" rows="2" placeholder="Any note"></textarea>
+      </div>
+      <div class="field">
+        <div class="field-label">Photo</div>
+        <div class="photo-row">
+          <label class="btn" for="fPhoto">📸 Add photo</label>
+          <input id="fPhoto" type="file" accept="image/*" capture="environment" hidden>
+          <img id="photoPreview" class="photo-preview" alt="Photo preview" hidden>
+          <button class="btn small ghost" id="btnPhotoRemove" type="button" hidden>Remove</button>
+        </div>
+      </div>
+    </details>
+
+    <div class="confirm-bar">
+      <button class="btn confirm" id="btnConfirm" type="button" disabled>CONFIRM <span id="confirmCount">0</span> PALLETS</button>
+    </div>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section class="tab" id="tab-history" data-tab="history" hidden>
+    <div class="card">
+      <form class="manual" id="historyForm" autocomplete="off">
+        <input id="historyInput" class="input" type="text" autocapitalize="characters" spellcheck="false"
+               placeholder="Pallet ID" aria-label="Pallet ID" list="palletIdList">
+        <datalist id="palletIdList"></datalist>
+        <button class="btn" type="submit">Find</button>
+      </form>
+      <button class="btn block" id="btnHistoryScan" type="button">📷 Scan a pallet</button>
+    </div>
+    <div id="historyResult"></div>
+  </section>
+
+  <!-- ============ DASHBOARD ============ -->
+  <section class="tab" id="tab-dashboard" data-tab="dashboard" hidden>
+    <div class="tiles" id="tiles"></div>
+    <div class="card">
+      <select id="customerFilter" class="big-select small-select cust-filter" aria-label="Filter by customer"></select>
+      <div class="dash-tools">
+        <select id="statusFilter" class="big-select small-select" aria-label="Filter by status">
+          <option value="ALL">All pallets</option>
+          <option value="AT_WAREHOUSE">At warehouse</option>
+          <option value="OUT">Out with FG</option>
+          <option value="DAMAGED">Damaged</option>
+        </select>
+        <button class="btn" id="btnExport" type="button">⬇ Export CSV</button>
+      </div>
+      <p class="hint">Tap a column to sort. Tap a row to see its history.</p>
+      <div class="table-wrap">
+        <table class="dash-table" id="dashTable">
+          <thead><tr>
+            <th data-sort="id">Pallet ID</th>
+            <th data-sort="days">Days since<br>last scan</th>
+            <th data-sort="status">Status</th>
+            <th data-sort="customer">Customer</th>
+            <th data-sort="dest">Destination</th>
+            <th data-sort="last">Last scan</th>
+            <th data-sort="location">Last location</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty" id="dashEmpty" hidden>No pallets yet. Go to Settings → Load sample data, or make QR codes.</p>
+    </div>
+  </section>
+
+  <!-- ============ QR CODES ============ -->
+  <section class="tab" id="tab-qr" data-tab="qr" hidden>
+    <div class="card no-print">
+      <div class="field-label">Make new pallet labels</div>
+      <div class="field">
+        <label class="field-label" for="genCustomer">Rented to (customer)</label>
+        <select id="genCustomer" class="big-select"></select>
+        <p class="hint">This name is printed under each QR. Add customers in Settings.</p>
+      </div>
+      <div class="row gap">
+        <label class="inline">How many?
+          <input id="genCount" class="input num" type="number" min="1" max="200" value="30">
+        </label>
+        <button class="btn primary" id="btnGenerate" type="button">Generate pallets</button>
+      </div>
+      <p class="hint" id="palletCountHint"></p>
+    </div>
+
+    <div class="card no-print">
+      <div class="field-label">Print</div>
+      <div class="field">
+        <label class="field-label" for="printCustomer">Show labels for</label>
+        <select id="printCustomer" class="big-select"></select>
+      </div>
+      <div class="row gap wrap">
+        <button class="btn" id="btnPrintPallets" type="button">🖨 Print pallet labels</button>
+        <button class="btn" id="btnPrintLocations" type="button">🖨 Print location cards</button>
+      </div>
+      <p class="hint">Print on A4. Stick one label on each pallet. Location cards go on the wall at each place.</p>
+    </div>
+
+    <div class="print-sheet" id="sheetPallets">
+      <h2 class="sheet-title">Pallet labels</h2>
+      <div class="label-grid" id="palletLabels"></div>
+    </div>
+
+    <div class="print-sheet" id="sheetLocations">
+      <h2 class="sheet-title">Location cards</h2>
+      <div class="loc-grid" id="locationCards"></div>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="tab" id="tab-settings" data-tab="settings" hidden>
+    <div class="card">
+      <div class="field">
+        <label class="field-label" for="sUser">Your name (shown as "Scanned by")</label>
+        <input id="sUser" class="input" type="text" placeholder="Your name">
+      </div>
+      <div class="field">
+        <label class="field-label" for="sCustomers">Customers who rent pallets (one per line)</label>
+        <textarea id="sCustomers" class="input" rows="4" placeholder="ABC Auto Components"></textarea>
+        <p class="hint">Pick one of these when you make QR labels. Its name is printed under the QR.</p>
+      </div>
+      <div class="field">
+        <label class="field-label" for="sLocations">Locations (one per line)</label>
+        <textarea id="sLocations" class="input" rows="4"></textarea>
+      </div>
+      <button class="btn primary block" id="btnSaveSettings" type="button">Save settings</button>
+    </div>
+
+    <div class="card">
+      <div class="field-label">Demo data</div>
+      <button class="btn block" id="btnSample" type="button">Load sample data</button>
+      <button class="btn block danger" id="btnReset" type="button">Reset all</button>
+      <p class="hint" id="storageInfo"></p>
+    </div>
+
+    <div class="card about">
+      <div class="field-label">About this demo</div>
+      <ul>
+        <li>Every pallet has its own QR code. Scan it when it goes out (LOAD OUT) and when it comes back (UNLOAD IN).</li>
+        <li><b>Data stays on this phone only</b>, in this browser. Two phones do not share data. Clearing the browser deletes the data.</li>
+        <li>Saved scans cannot be changed or deleted. If you make a mistake, scan again.</li>
+        <li>Camera needs an https:// link. Allow camera access when asked.</li>
+      </ul>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="tabbtn on" data-go="scan" type="button"><span>📷</span>Scan</button>
+  <button class="tabbtn" data-go="history" type="button"><span>🕘</span>History</button>
+  <button class="tabbtn" data-go="dashboard" type="button"><span>📊</span>Dashboard</button>
+  <button class="tabbtn" data-go="qr" type="button"><span>🏷</span>QR Codes</button>
+  <button class="tabbtn" data-go="settings" type="button"><span>⚙</span>Settings</button>
+</nav>
+
+<!-- Scanner modal used by History -->
+<div class="modal" id="scanModal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <b>Scan a pallet</b>
+      <button class="btn small ghost" id="btnCloseModal" type="button">Close</button>
+    </div>
+    <div id="readerModal" class="reader"></div>
+  </div>
+</div>
+
+<!-- Photo viewer -->
+<div class="modal" id="photoModal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <b>Photo</b>
+      <button class="btn small ghost" id="btnClosePhoto" type="button">Close</button>
+    </div>
+    <img id="photoBig" class="photo-big" alt="Scan photo">
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="vendor/qrcode-generator.min.js"></script>
+<script src="vendor/html5-qrcode.min.js"></script>
+<script src="app.js?v=3"></script>
+</body>
+</html>
