@@ -81,15 +81,18 @@ Tips for scanning:
 ## Customer name on labels
 Each pallet can be marked as rented to a customer, for example `ABC Auto Components`.
 - Manage the list in **Settings → Customers who rent pallets**, or use **+ Add new customer…** in the QR Codes tab.
-- In **QR Codes**, choose **Rented to** and tap **Generate pallets**. Every new label prints that customer's name under the QR, and the sheet switches to show just that batch, ready to print.
+- In **QR Codes**, choose **Rented to**, enter how many, and tap **Generate pallets**. The sheet then shows **exactly that batch** (for example 5 labels if you entered 5), ready to print. Earlier batches stay listed under **Show labels for → Generated batches**, so any batch can be reprinted on its own. The count must be a whole number from 1 to 200; anything else is refused with a message rather than changed.
 - **The QR holds only the pallet ID.** The customer name is printed text, stored on the pallet record (`pallet.customer`). The QR itself never needs to change.
 - The customer name appears in the Dashboard (column and filter, and the tiles follow the filter), in History, in the scan list and in the CSV export.
 - The sample data rents its 30 pallets to 3 made-up customers, 10 each.
 
 ## Fixed demo IDs
 Pallet IDs look random, for example `PLT-7K3M9QX`. Each is 6 characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` plus a check character. For the demo they come from a **fixed seed**, so every device makes the same IDs. Because data is not shared between phones, this is what lets labels printed on one device be recognised on every phone.
-- "Generate pallets" adds the next IDs from the same sequence. If you print new labels this way, generate the same number for the same customer on the phone as well.
-- **Reset all** followed by **Load sample data** brings back the same 30 IDs, so your printed labels keep working.
+- Each customer has its own fixed sequence, so a label printed on a laptop is recognised on any phone. The phone sees that the label is genuine and which customer it belongs to, and adds the pallet the first time it is scanned. Nothing needs to be generated on the phone.
+- If a label was made for a **new customer** (one added on the laptop only), add that customer on the phone too, in Settings, with the same name. Until then the phone shows "This pallet is not in the system", with that hint.
+- Labels still work after **Reset all** or **Load sample data**.
+- A label that does not come from this system, or an ID typed with a wrong letter, is still flagged "This pallet is not in the system".
+- Labels generated with no customer name, and labels made before this update, are recognised but without a customer name.
 - For real use, set `DEMO_FIXED_IDS = false` at the top of `app.js` to get truly random IDs.
 
 **Check character:** a weighted mod-31 checksum, where the sum of position × value over the 7 characters must be 0 mod 31. Because 31 is prime, it catches **every** single wrong character and **every** swap of two characters. (Luhn mod N was not used because its doubling step misses some typos when the alphabet size is odd.)

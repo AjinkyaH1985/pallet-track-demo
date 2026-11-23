@@ -120,22 +120,38 @@
     crypto.getRandomValues(a);
     return a[0] / 4294967296;
   }
-  // Fixed demo ID stream: the same list on every device.
-  function seededIds(count) {
-    const rand = mulberry32(ID_SEED), out = [], seen = new Set();
+  // Fixed demo ID streams: the same lists on every device.
+  // The main stream holds the 30 sample pallets (and labels made with no
+  // customer name). Each customer has its own stream, so any device can tell
+  // that a printed label is genuine and which customer it belongs to, even if
+  // the label was generated on a different device.
+  const STREAM_LOOKAHEAD = 3000; // how far into each stream a device looks
+  function seededIdsFrom(seed, count) {
+    const rand = mulberry32(seed), out = [], seen = new Set();
     while (out.length < count) {
       const id = makeId(rand);
       if (!seen.has(id)) { seen.add(id); out.push(id); }
     }
     return out;
   }
-  function newPalletIds(count, existing) {
+  function seededIds(count) { return seededIdsFrom(ID_SEED, count); }
+  function nameHash(s) { // FNV-1a, 32-bit
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return h >>> 0;
+  }
+  function customerSeed(customer) {
+    const key = String(customer || '').trim().toLowerCase();
+    return key ? ((ID_SEED ^ nameHash(key)) >>> 0) : ID_SEED;
+  }
+  function newPalletIds(count, existing, customer) {
     const out = [];
     if (DEMO_FIXED_IDS) {
+      const seed = customerSeed(customer);
       let pool = existing.size + count + 20;
       while (out.length < count) {
         out.length = 0;
-        for (const id of seededIds(pool)) {
+        for (const id of seededIdsFrom(seed, pool)) {
           if (!existing.has(id)) out.push(id);
           if (out.length === count) break;
         }
@@ -319,9 +335,43 @@
   $('btnLoadOut').addEventListener('click', () => setAction('LOAD_OUT'));
   $('btnUnloadIn').addEventListener('click', () => setAction('UNLOAD_IN'));
 
+  // Is this a genuine label from this system (made on any device)?
+  // Returns { customer } or null.
+  let genuineCache = null, genuineKey = null;
+  function genuineLookup(id) {
+    if (!DEMO_FIXED_IDS) return null;
+    const key = settings.customers.map((c) => c.trim().toLowerCase()).join('|');
+    if (!genuineCache || key !== genuineKey) {
+      genuineCache = new Map();
+      const main = seededIds(STREAM_LOOKAHEAD);
+      main.slice(0, 30).forEach((x, i) => genuineCache.set(x, sampleCustomer(i)));
+      settings.customers.forEach((c) => {
+        seededIdsFrom(customerSeed(c), STREAM_LOOKAHEAD).forEach((x) => { if (!genuineCache.has(x)) genuineCache.set(x, c); });
+      });
+      main.slice(30).forEach((x) => { if (!genuineCache.has(x)) genuineCache.set(x, ''); });
+      genuineKey = key;
+    }
+    return genuineCache.has(id) ? { customer: genuineCache.get(id) } : null;
+  }
+  // Make sure a genuine pallet is known on this device. A label printed on
+  // another device (or before "Load sample data" / "Reset all") is added
+  // automatically the first time it is scanned. Returns true if known.
+  function ensurePallet(id) {
+    if (palletMap.has(id)) return true;
+    const g = isValidId(id) ? genuineLookup(id) : null;
+    if (!g) return false;
+    pallets.push({ id: id, createdAt: new Date().toISOString(), customer: g.customer });
+    try { save(KEYS.pallets, pallets); } catch (e) { /* storage full: still usable this session */ }
+    rebuildIndex();
+    return true;
+  }
+
   function warningsFor(id) {
     const w = [];
-    if (!palletMap.has(id)) { w.push({ bad: true, text: 'This pallet is not in the system.' }); return w; }
+    if (!palletMap.has(id)) {
+      w.push({ bad: true, text: 'This pallet is not in the system. If its label was made on another device for a new customer, add that customer in Settings with the same name.' });
+      return w;
+    }
     const st = palletState(id);
     if (currentAction === 'LOAD_OUT' && st.status === 'OUT') w.push({ text: 'This pallet is already marked as OUT.' });
     if (currentAction === 'UNLOAD_IN' && st.status === 'AT_WAREHOUSE') w.push({ text: 'This pallet is already marked as AT WAREHOUSE.' });
@@ -372,6 +422,7 @@
       feedbackSound('bad');
       return;
     }
+    ensurePallet(id);
     if (!currentAction) {
       showLast('bad', '✖ First tap LOAD OUT or UNLOAD IN.');
       feedbackSound('bad');
@@ -714,7 +765,7 @@
       return;
     }
     const mine = scans.filter((s) => s.palletId === id).sort((a, b) => a.timestamp < b.timestamp ? 1 : -1);
-    const known = palletMap.has(id);
+    const known = ensurePallet(id);
     if (!known && !mine.length) {
       out.innerHTML = '<div class="card"><div class="big-id">' + esc(id) + '</div><p class="si-warn bad">⚠ This pallet is not in the system.' +
         (isValidId(id) ? '' : ' (Wrong ID — check every letter.)') + '</p></div>';
@@ -1095,8 +1146,19 @@
   let genCustomer = null; // remembered choice in the "Rented to" dropdown
 
   function labelPallets() {
-    return pallets.filter((p) => matchCustomer(p, printFilter))
+    const batch = printFilter.startsWith('batch:') ? printFilter.slice(6) : null;
+    return pallets.filter((p) => batch ? p.batch === batch : matchCustomer(p, printFilter))
       .sort((a, b) => a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
+  }
+  // Each "Generate pallets" click is one batch, so it can be printed on its own.
+  function batchList() {
+    const map = new Map();
+    pallets.forEach((p) => {
+      if (!p.batch) return;
+      if (!map.has(p.batch)) map.set(p.batch, { id: p.batch, customer: p.customer || '', count: 0 });
+      map.get(p.batch).count++;
+    });
+    return Array.from(map.values()).sort((a, b) => (a.id < b.id ? 1 : -1));
   }
   function renderQr() {
     // "Rented to" dropdown
@@ -1108,7 +1170,11 @@
 
     // "Show labels for" dropdown
     const pc = $('printCustomer');
-    pc.innerHTML = customerOptions('All customers', pallets.some((p) => !p.customer));
+    const batches = batchList();
+    pc.innerHTML = (batches.length ? '<optgroup label="Generated batches">' + batches.map((b) =>
+      '<option value="batch:' + esc(b.id) + '">' + esc(fmtDateTime(b.id)) + ' · ' + esc(b.customer || 'No customer name') +
+      ' · ' + b.count + ' label' + (b.count === 1 ? '' : 's') + '</option>').join('') + '</optgroup>' : '') +
+      '<optgroup label="All pallets of">' + customerOptions('All customers', pallets.some((p) => !p.customer)) + '</optgroup>';
     if (![...pc.options].some((o) => o.value === printFilter)) printFilter = 'ALL';
     pc.value = printFilter;
 
@@ -1121,7 +1187,8 @@
       '<div class="loc-card"><div class="ltag">LOCATION</div>' + qrSvg('LOC:' + l) + '<div class="lname">' + esc(l) + '</div></div>').join('');
     $('palletCountHint').textContent = pallets.length + ' pallets in the system.';
     document.querySelector('#sheetPallets .sheet-title').textContent =
-      'Pallet labels (' + list.length + ')' + (printFilter === 'ALL' ? '' : printFilter === NO_CUSTOMER ? ' — no customer name' : ' — ' + printFilter);
+      'Pallet labels (' + list.length + ')' + (printFilter === 'ALL' ? '' : printFilter.startsWith('batch:') ? ' — ' + pc.selectedOptions[0].text :
+        printFilter === NO_CUSTOMER ? ' — no customer name' : ' — ' + printFilter);
   }
   $('genCustomer').addEventListener('change', (e) => {
     if (e.target.value === '__add__') {
@@ -1138,14 +1205,23 @@
   });
   $('printCustomer').addEventListener('change', (e) => { printFilter = e.target.value; renderQr(); });
   $('btnGenerate').addEventListener('click', () => {
-    const n = Math.max(1, Math.min(200, parseInt($('genCount').value, 10) || 30));
+    // Use exactly the number entered: never change it silently.
+    const raw = $('genCount').value.trim();
+    const n = Number(raw);
+    if (!/^\d+$/.test(raw) || n < 1 || n > 200) {
+      toast('Enter a whole number from 1 to 200.', 'bad', 3500);
+      $('genCount').focus();
+      return;
+    }
     const customer = genCustomer && genCustomer !== NO_CUSTOMER && genCustomer !== '__add__' ? genCustomer : '';
-    const ids = newPalletIds(n, new Set(pallets.map((p) => p.id)));
+    const ids = newPalletIds(n, new Set(pallets.map((p) => p.id)), customer);
     const base = Date.now();
-    ids.forEach((id, i) => pallets.push({ id: id, createdAt: new Date(base + i).toISOString(), customer: customer }));
-    try { save(KEYS.pallets, pallets); } catch (e) { toast('Storage is full.', 'bad'); return; }
+    const batch = new Date(base).toISOString();
+    const added = ids.map((id, i) => ({ id: id, createdAt: new Date(base + i).toISOString(), customer: customer, batch: batch }));
+    try { save(KEYS.pallets, pallets.concat(added)); } catch (e) { toast('Storage is full.', 'bad'); return; }
+    pallets = pallets.concat(added);
     rebuildIndex();
-    printFilter = customer || NO_CUSTOMER; // show the new batch, ready to print
+    printFilter = 'batch:' + batch; // show exactly this batch, ready to print
     renderQr();
     toast(n + ' new pallets added' + (customer ? ' for ' + customer : ''), 'ok', 3000);
   });
@@ -1344,5 +1420,5 @@
   }
 
   // Exposed for testing in the browser console only.
-  window.__pt = { checkChar, isValidId, normalizeId, seededIds, qrSvg, handleCode, state: () => ({ pallets, scans }) };
+  window.__pt = { checkChar, isValidId, normalizeId, seededIds, seededIdsFrom, customerSeed, genuineLookup, qrSvg, handleCode, state: () => ({ pallets, scans }) };
 })();
