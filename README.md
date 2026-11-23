@@ -5,7 +5,7 @@ This demo tracks pallets with QR codes. Floor staff scan each pallet with a phon
 ## Files
 | File | What it is |
 |---|---|
-| `index.html` | The app. It has 5 tabs: Scan, History, Dashboard, QR Codes, Settings |
+| `index.html` | The app. It has 6 pages: Scan, Dashboard, Inventory, History, QR Codes, Settings |
 | `app.js` | All the app logic |
 | `style.css` | Styles, including the print layout for labels |
 | `vendor/` | QR libraries, copied in so no CDN is needed: `html5-qrcode` 2.3.8 for scanning and `qrcode-generator` 1.4.4 for making codes |
@@ -36,6 +36,21 @@ On a phone, `http://192.168.x.x` will **not** open the camera. Host the folder o
 **Vercel:** run `npx vercel` in this folder, or import the repo on vercel.com.
 
 On the phone, tap **Allow** when the browser asks for the camera. You can then use Share → **Add to Home Screen** so the app opens full-screen.
+
+## Phone and computer layout
+- **Phone:** a bottom tab bar, with big buttons for one-handed scanning. The app opens on **Scan**.
+- **Computer (screen 960 px or wider):** a left sidebar, and the owner pages (Dashboard, Inventory, History, QR Codes, Settings) use the full width with more compact controls. The app opens on **Dashboard**. The Scan page stays a narrow phone-style column, because scanning is meant to be done on a phone.
+
+## Inventory page
+For the owner: how many pallets each customer has, and where they are now.
+- **Pallets by customer:** pallets assigned, at the warehouse, out with FG and damaged for each customer, plus a bar showing the split, the longest time any of them has been out (days) and the last activity. A total row is at the bottom. Customers in Settings with no pallets show as 0. **Export CSV** saves this table.
+- **Out with FG: by destination:** where the pallets that are out went on their last Load Out, how many, and for how long.
+- **At warehouse: by location:** where the returned pallets were last scanned.
+- Tapping any row opens the Dashboard already filtered: by that customer, or by the OUT / AT WAREHOUSE status plus that destination or location.
+
+The Dashboard also has a **search box** that searches pallet ID, customer, destination and location.
+
+The Inventory page, like the rest of the app, counts only the scans saved on the device you are using.
 
 ## Demo script (like the real thing)
 1. **Print labels.** On a laptop, open the hosted link and go to **QR Codes**. Pick a customer in **Show labels for**, or leave it on All customers, and tap **Print pallet labels**. The A4 sheet has 6 big labels per page, and each label shows the QR, the pallet ID and the customer name. Also tap **Print location cards**. Stick each label on a pallet, or on a box if you have no pallets.

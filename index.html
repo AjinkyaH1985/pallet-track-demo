@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-180.png">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 
@@ -133,8 +133,9 @@
   </section>
 
   <!-- ============ HISTORY ============ -->
-  <section class="tab" id="tab-history" data-tab="history" hidden>
-    <div class="card">
+  <section class="tab wide" id="tab-history" data-tab="history" hidden>
+    <h1 class="page-title">Pallet history</h1>
+    <div class="card history-search">
       <form class="manual" id="historyForm" autocomplete="off">
         <input id="historyInput" class="input" type="text" autocapitalize="characters" spellcheck="false"
                placeholder="Pallet ID" aria-label="Pallet ID" list="palletIdList">
@@ -147,11 +148,13 @@
   </section>
 
   <!-- ============ DASHBOARD ============ -->
-  <section class="tab" id="tab-dashboard" data-tab="dashboard" hidden>
+  <section class="tab wide" id="tab-dashboard" data-tab="dashboard" hidden>
+    <h1 class="page-title">Dashboard</h1>
     <div class="tiles" id="tiles"></div>
     <div class="card">
-      <select id="customerFilter" class="big-select small-select cust-filter" aria-label="Filter by customer"></select>
       <div class="dash-tools">
+        <input id="dashSearch" class="input dash-search" type="search" placeholder="Search ID, customer, destination, location" aria-label="Search pallets">
+        <select id="customerFilter" class="big-select small-select" aria-label="Filter by customer"></select>
         <select id="statusFilter" class="big-select small-select" aria-label="Filter by status">
           <option value="ALL">All pallets</option>
           <option value="AT_WAREHOUSE">At warehouse</option>
@@ -160,7 +163,7 @@
         </select>
         <button class="btn" id="btnExport" type="button">⬇ Export CSV</button>
       </div>
-      <p class="hint">Tap a column to sort. Tap a row to see its history.</p>
+      <p class="hint"><span id="dashCount"></span> Tap a column to sort. Tap a row to see its history.</p>
       <div class="table-wrap">
         <table class="dash-table" id="dashTable">
           <thead><tr>
@@ -179,8 +182,61 @@
     </div>
   </section>
 
+  <!-- ============ INVENTORY ============ -->
+  <section class="tab wide" id="tab-inventory" data-tab="inventory" hidden>
+    <h1 class="page-title">Inventory</h1>
+    <div class="card">
+      <div class="card-head">
+        <div class="field-label">Pallets by customer</div>
+        <button class="btn small" id="btnInvExport" type="button">⬇ Export CSV</button>
+      </div>
+      <p class="hint">How many pallets each customer has, and where they are now. Tap a row to see those pallets.</p>
+      <div class="table-wrap">
+        <table class="dash-table inv-table" id="invCustomerTable">
+          <thead><tr>
+            <th>Customer</th>
+            <th class="num">Assigned</th>
+            <th class="num">At warehouse</th>
+            <th class="num">Out with FG</th>
+            <th class="num">Damaged</th>
+            <th class="split-col">Where they are</th>
+            <th class="num">Longest out<br>(days)</th>
+            <th>Last activity</th>
+          </tr></thead>
+          <tbody></tbody>
+          <tfoot></tfoot>
+        </table>
+      </div>
+    </div>
+    <div class="inv-grid">
+      <div class="card">
+        <div class="field-label">Out with FG: by destination</div>
+        <p class="hint">Where pallets went on their last Load Out. Tap a row to see them.</p>
+        <div class="table-wrap">
+          <table class="dash-table inv-table" id="invDestTable">
+            <thead><tr><th>Destination</th><th class="num">Pallets</th><th class="num">Longest out<br>(days)</th><th>Customer</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="field-label">At warehouse: by location</div>
+        <p class="hint">Where returned pallets were last scanned. Tap a row to see them.</p>
+        <div class="table-wrap">
+          <table class="dash-table inv-table" id="invLocTable">
+            <thead><tr><th>Location</th><th class="num">Pallets</th><th class="num">Damaged</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <p class="hint">Based on the scans saved on this device.</p>
+  </section>
+
   <!-- ============ QR CODES ============ -->
-  <section class="tab" id="tab-qr" data-tab="qr" hidden>
+  <section class="tab wide" id="tab-qr" data-tab="qr" hidden>
+    <h1 class="page-title no-print">QR codes</h1>
+    <div class="two-col no-print">
     <div class="card no-print">
       <div class="field-label">Make new pallet labels</div>
       <div class="field">
@@ -209,6 +265,7 @@
       </div>
       <p class="hint">Print on A4. Stick one label on each pallet. Location cards go on the wall at each place.</p>
     </div>
+    </div>
 
     <div class="print-sheet" id="sheetPallets">
       <h2 class="sheet-title">Pallet labels</h2>
@@ -222,7 +279,9 @@
   </section>
 
   <!-- ============ SETTINGS ============ -->
-  <section class="tab" id="tab-settings" data-tab="settings" hidden>
+  <section class="tab wide" id="tab-settings" data-tab="settings" hidden>
+    <h1 class="page-title">Settings</h1>
+    <div class="two-col">
     <div class="card">
       <div class="field">
         <label class="field-label" for="sUser">Your name (shown as "Scanned by")</label>
@@ -240,6 +299,7 @@
       <button class="btn primary block" id="btnSaveSettings" type="button">Save settings</button>
     </div>
 
+    <div>
     <div class="card">
       <div class="field-label">Demo data</div>
       <button class="btn block" id="btnSample" type="button">Load sample data</button>
@@ -251,21 +311,25 @@
       <div class="field-label">About this demo</div>
       <ul>
         <li>Every pallet has its own QR code. Scan it when it goes out (LOAD OUT) and when it comes back (UNLOAD IN).</li>
-        <li><b>Data stays on this phone only</b>, in this browser. Two phones do not share data. Clearing the browser deletes the data.</li>
+        <li><b>Data stays on this device only</b>, in this browser. Two phones (or a phone and a computer) do not share data. Clearing the browser deletes the data.</li>
         <li>Saved scans cannot be changed or deleted. If you make a mistake, scan again.</li>
         <li>Camera needs an https:// link. Allow camera access when asked.</li>
       </ul>
+    </div>
+    </div>
     </div>
   </section>
 
 </main>
 
-<nav class="tabbar">
+<nav class="tabbar" aria-label="Main">
   <button class="tabbtn on" data-go="scan" type="button"><span>📷</span>Scan</button>
-  <button class="tabbtn" data-go="history" type="button"><span>🕘</span>History</button>
   <button class="tabbtn" data-go="dashboard" type="button"><span>📊</span>Dashboard</button>
+  <button class="tabbtn" data-go="inventory" type="button"><span>📦</span>Inventory</button>
+  <button class="tabbtn" data-go="history" type="button"><span>🕘</span>History</button>
   <button class="tabbtn" data-go="qr" type="button"><span>🏷</span>QR Codes</button>
   <button class="tabbtn" data-go="settings" type="button"><span>⚙</span>Settings</button>
+  <p class="side-note">Data is saved on this device only.</p>
 </nav>
 
 <!-- Scanner modal used by History -->
@@ -294,6 +358,6 @@
 
 <script src="vendor/qrcode-generator.min.js"></script>
 <script src="vendor/html5-qrcode.min.js"></script>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

@@ -253,7 +253,7 @@
   // ------------------------------------------------------------------
   // Tabs
   // ------------------------------------------------------------------
-  const TABS = ['scan', 'history', 'dashboard', 'qr', 'settings'];
+  const TABS = ['scan', 'dashboard', 'inventory', 'history', 'qr', 'settings'];
   let currentTab = 'scan';
 
   function goTab(name) {
@@ -268,6 +268,7 @@
     if (name === 'qr') renderQr();
     if (name === 'settings') renderSettings();
     if (name === 'history') renderHistoryIdList();
+    if (name === 'inventory') renderInventory();
     if (location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
     window.scrollTo(0, 0);
   }
@@ -803,7 +804,7 @@
   // ------------------------------------------------------------------
   // DASHBOARD
   // ------------------------------------------------------------------
-  let sortKey = 'days', sortDir = 'desc', statusFilter = 'ALL', customerFilter = 'ALL';
+  let sortKey = 'days', sortDir = 'desc', statusFilter = 'ALL', customerFilter = 'ALL', dashSearch = '';
   const NO_CUSTOMER = '__none__';
 
   function allCustomerNames() {
@@ -857,7 +858,10 @@
       '<div class="n">' + counts[t[0]] + '</div><div class="l">' + t[1] + '</div></button>').join('');
     $('statusFilter').value = statusFilter;
 
-    let list = rows.filter((r) => statusFilter === 'ALL' ? true : statusFilter === 'DAMAGED' ? r.damaged : r.status === statusFilter);
+    const q = dashSearch.trim().toLowerCase();
+    $('dashSearch').value = dashSearch;
+    let list = rows.filter((r) => statusFilter === 'ALL' ? true : statusFilter === 'DAMAGED' ? r.damaged : r.status === statusFilter)
+      .filter((r) => !q || [r.id, r.customer, r.dest, r.location].some((v) => (v || '').toLowerCase().includes(q)));
     const dir = sortDir === 'asc' ? 1 : -1;
     list.sort((a, b) => {
       let va = a[sortKey], vb = b[sortKey];
@@ -882,10 +886,18 @@
       '<td>' + statusBadge(r.st) + '</td>' +
       '<td>' + esc(r.customer || '—') + '</td>' +
       '<td>' + esc(r.dest || '—') + '</td>' +
-      '<td>' + (r.last ? esc(fmtDateTime(r.last)) : 'Not scanned') + '</td>' +
+      '<td class="nowrap">' + (r.last ? esc(fmtDateTime(r.last)) : 'Not scanned') + '</td>' +
       '<td>' + esc(r.location || '—') + '</td>' +
       '</tr>').join('');
     $('dashEmpty').hidden = rows.length > 0;
+    $('dashCount').textContent = rows.length ? 'Showing ' + list.length + ' of ' + rows.length + ' pallets.' : '';
+  }
+  // Open the dashboard with filters already set (used by the Inventory page).
+  function openDashboard(opts) {
+    customerFilter = opts.customer || 'ALL';
+    statusFilter = opts.status || 'ALL';
+    dashSearch = opts.search || '';
+    goTab('dashboard');
   }
   $('tiles').addEventListener('click', (e) => {
     const t = e.target.closest('.tile');
@@ -895,6 +907,7 @@
   });
   $('statusFilter').addEventListener('change', (e) => { statusFilter = e.target.value; renderDashboard(); });
   $('customerFilter').addEventListener('change', (e) => { customerFilter = e.target.value; renderDashboard(); });
+  $('dashSearch').addEventListener('input', (e) => { dashSearch = e.target.value; renderDashboard(); });
   document.querySelectorAll('#dashTable th').forEach((th) => th.addEventListener('click', () => {
     const k = th.dataset.sort;
     if (sortKey === k) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
@@ -921,18 +934,23 @@
       return [s.scanId, s.palletId, customerOf(s.palletId), d.toLocaleDateString('en-CA'), d.toLocaleTimeString('en-GB'), s.timestamp, s.action, s.location,
         s.scannedBy, s.condition, s.vehicleNo, s.party, s.challanNo, s.remarks, s.photo ? 'yes' : 'no'].map(csvCell).join(',');
     });
-    const csv = '﻿' + head.join(',') + '\r\n' + rows.join('\r\n') + '\r\n';
     const name = 'pallet-scans-' + new Date().toLocaleDateString('en-CA') + '.csv';
+    if (await saveCsv(name, head, rows)) toast('CSV file downloaded: ' + scans.length + ' scans', 'ok');
+  });
+
+  // Share (phones) or download (computers) a CSV. Returns true when downloaded.
+  async function saveCsv(name, head, rows) {
+    const csv = '\ufeff' + head.join(',') + '\r\n' + rows.join('\r\n') + '\r\n';
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     // On phones, offer the share sheet (WhatsApp, email, Files). Else download.
     try {
       const file = new File([blob], name, { type: 'text/csv' });
       if (window.matchMedia('(pointer: coarse)').matches && navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: name });
-        return;
+        return false;
       }
     } catch (e) {
-      if (e && e.name === 'AbortError') return;
+      if (e && e.name === 'AbortError') return false;
     }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -940,7 +958,120 @@
     document.body.appendChild(a);
     a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-    toast('CSV file downloaded: ' + scans.length + ' scans', 'ok');
+    return true;
+  }
+
+  // ------------------------------------------------------------------
+  // INVENTORY: pallets assigned to each customer and where they are now
+  // ------------------------------------------------------------------
+  function inventoryData() {
+    const blank = () => ({ assigned: 0, atWh: 0, out: 0, damaged: 0, longestOut: null, lastTs: '' });
+    const byCust = new Map();
+    // every customer in Settings is listed, even with 0 pallets
+    settings.customers.forEach((c) => byCust.set(c, blank()));
+    const byDest = new Map(), byLoc = new Map();
+    pallets.forEach((p) => {
+      const key = p.customer || NO_CUSTOMER;
+      if (!byCust.has(key)) byCust.set(key, blank());
+      const c = byCust.get(key);
+      const st = palletState(p.id);
+      c.assigned++;
+      if (st.damaged) c.damaged++;
+      if (st.last && st.last.timestamp > c.lastTs) c.lastTs = st.last.timestamp;
+      if (st.status === 'OUT') {
+        c.out++;
+        const days = daysSince(st.last.timestamp);
+        c.longestOut = Math.max(c.longestOut == null ? 0 : c.longestOut, days);
+        const dk = (st.lastOut && st.lastOut.party) || '';
+        if (!byDest.has(dk)) byDest.set(dk, { count: 0, longestOut: 0, customers: new Set() });
+        const d = byDest.get(dk);
+        d.count++;
+        d.longestOut = Math.max(d.longestOut, days);
+        if (p.customer) d.customers.add(p.customer);
+      } else {
+        c.atWh++;
+        const lk = st.last ? st.last.location : '';
+        if (!byLoc.has(lk)) byLoc.set(lk, { count: 0, damaged: 0 });
+        const l = byLoc.get(lk);
+        l.count++;
+        if (st.damaged) l.damaged++;
+      }
+    });
+    const customers = Array.from(byCust.entries()).map(([key, c]) => Object.assign({ key: key }, c))
+      .sort((a, b) => (a.key === NO_CUSTOMER) - (b.key === NO_CUSTOMER) || b.assigned - a.assigned || a.key.localeCompare(b.key));
+    const dests = Array.from(byDest.entries())
+      .map(([key, d]) => ({ key: key, count: d.count, longestOut: d.longestOut, customers: Array.from(d.customers).sort() }))
+      .sort((a, b) => b.longestOut - a.longestOut || b.count - a.count);
+    const locs = Array.from(byLoc.entries()).map(([key, l]) => ({ key: key, count: l.count, damaged: l.damaged }))
+      .sort((a, b) => b.count - a.count);
+    return { customers: customers, dests: dests, locs: locs };
+  }
+  function custLabel(key) { return key === NO_CUSTOMER ? 'No customer name' : key; }
+  function numCell(n) { return '<td class="num' + (n ? '' : ' zero') + '">' + n + '</td>'; }
+  function splitBar(atWh, out) {
+    const t = atWh + out;
+    if (!t) return '<span class="hint">—</span>';
+    return '<div class="split" title="' + atWh + ' at warehouse, ' + out + ' out with FG">' +
+      '<span class="s-in" style="width:' + (atWh / t * 100) + '%"></span>' +
+      '<span class="s-out" style="width:' + (out / t * 100) + '%"></span></div>';
+  }
+  function renderInventory() {
+    const inv = inventoryData();
+    const tot = inv.customers.reduce((a, c) => {
+      a.assigned += c.assigned; a.atWh += c.atWh; a.out += c.out; a.damaged += c.damaged;
+      if (c.longestOut != null) a.longestOut = Math.max(a.longestOut == null ? 0 : a.longestOut, c.longestOut);
+      if (c.lastTs > a.lastTs) a.lastTs = c.lastTs;
+      return a;
+    }, { assigned: 0, atWh: 0, out: 0, damaged: 0, longestOut: null, lastTs: '' });
+
+    const ct = $('invCustomerTable');
+    ct.querySelector('tbody').innerHTML = inv.customers.map((c) =>
+      '<tr data-customer="' + esc(c.key) + '">' +
+      '<td><b>' + esc(custLabel(c.key)) + '</b></td>' +
+      numCell(c.assigned) + numCell(c.atWh) + numCell(c.out) + numCell(c.damaged) +
+      '<td>' + splitBar(c.atWh, c.out) + '</td>' +
+      '<td class="num">' + (c.longestOut == null ? '—' : c.longestOut) + '</td>' +
+      '<td class="nowrap">' + (c.lastTs ? esc(fmtDateTime(c.lastTs)) : '—') + '</td>' +
+      '</tr>').join('') || '<tr><td colspan="8" class="empty">No pallets yet.</td></tr>';
+    ct.querySelector('tfoot').innerHTML = inv.customers.length ?
+      '<tr><td>Total</td>' + numCell(tot.assigned) + numCell(tot.atWh) + numCell(tot.out) + numCell(tot.damaged) +
+      '<td>' + splitBar(tot.atWh, tot.out) +
+      '<div class="split-legend"><span><i style="background:var(--in)"></i>At warehouse</span><span><i style="background:var(--out)"></i>Out with FG</span></div></td>' +
+      '<td class="num">' + (tot.longestOut == null ? '—' : tot.longestOut) + '</td>' +
+      '<td>' + (tot.lastTs ? esc(fmtDateTime(tot.lastTs)) : '—') + '</td></tr>' : '';
+
+    $('invDestTable').querySelector('tbody').innerHTML = inv.dests.map((d) =>
+      '<tr data-dest="' + esc(d.key) + '">' +
+      '<td><b>' + esc(d.key || 'Not entered') + '</b></td>' + numCell(d.count) +
+      '<td class="num">' + d.longestOut + '</td>' +
+      '<td>' + esc(d.customers.join(', ') || '—') + '</td></tr>').join('') ||
+      '<tr><td colspan="4" class="empty">No pallets are out right now.</td></tr>';
+
+    $('invLocTable').querySelector('tbody').innerHTML = inv.locs.map((l) =>
+      '<tr data-loc="' + esc(l.key) + '">' +
+      '<td><b>' + esc(l.key || 'Not scanned yet') + '</b></td>' + numCell(l.count) + numCell(l.damaged) + '</tr>').join('') ||
+      '<tr><td colspan="3" class="empty">No pallets at the warehouse.</td></tr>';
+  }
+  $('invCustomerTable').querySelector('tbody').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-customer]');
+    if (tr) openDashboard({ customer: tr.dataset.customer });
+  });
+  $('invDestTable').querySelector('tbody').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-dest]');
+    if (tr) openDashboard({ status: 'OUT', search: tr.dataset.dest });
+  });
+  $('invLocTable').querySelector('tbody').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-loc]');
+    if (tr) openDashboard({ status: 'AT_WAREHOUSE', search: tr.dataset.loc });
+  });
+  $('btnInvExport').addEventListener('click', async () => {
+    const inv = inventoryData();
+    if (!inv.customers.length) { toast('Nothing to export yet.', 'bad'); return; }
+    const head = ['customer', 'assigned', 'atWarehouse', 'outWithFG', 'damaged', 'longestOutDays', 'lastActivity'];
+    const rows = inv.customers.map((c) => [custLabel(c.key), c.assigned, c.atWh, c.out, c.damaged,
+      c.longestOut == null ? '' : c.longestOut,
+      c.lastTs ? new Date(c.lastTs).toLocaleDateString('en-CA') + ' ' + new Date(c.lastTs).toLocaleTimeString('en-GB') : ''].map(csvCell).join(','));
+    if (await saveCsv('pallet-inventory-' + new Date().toLocaleDateString('en-CA') + '.csv', head, rows)) toast('Inventory CSV downloaded', 'ok');
   });
 
   // ------------------------------------------------------------------
@@ -1044,7 +1175,7 @@
     $('sCustomers').value = settings.customers.join('\n');
     $('sLocations').value = settings.locations.join('\n');
     const kb = Math.round(storageUsed() / 1024);
-    $('storageInfo').textContent = pallets.length + ' pallets, ' + scans.length + ' scans saved on this phone. Space used: about ' + kb + ' KB of ~5,000 KB.';
+    $('storageInfo').textContent = pallets.length + ' pallets, ' + scans.length + ' scans saved on this device. Space used: about ' + kb + ' KB of ~5,000 KB.';
   }
   $('btnSaveSettings').addEventListener('click', () => {
     const locs = Array.from(new Set($('sLocations').value.split('\n').map((s) => s.trim()).filter(Boolean)));
@@ -1121,13 +1252,18 @@
       return loadDay - dur;
     };
 
-    const damagedIdx = [4, 12];
+    // Which sample pallets are out (customer of pallet i is i % 3, so this
+    // gives ABC 6 out, Mahalaxmi 4 out, Sigma 2 out: a more natural mix).
+    const shortOutIdx = [0, 3, 6, 1, 4, 2];
+    const longOutIdx = [9, 12, 15, 7, 10, 5];
+    const damagedIdx = [8, 13];
     const longOutDays = [50, 46, 42, 38, 34, 31];
     const longOutParties = ['Deccan Wheels, Aurangabad', 'Orbit Appliances, Silvassa', 'Nova Tractors, Kolhapur',
       'Greenline Pumps, Ahmednagar', 'Vardhan Castings, Sangli', 'Apex Forge Works, Satara'];
 
     ids.forEach((pid, i) => {
-      if (i < 18) {
+      const role = longOutIdx.includes(i) ? 'long' : shortOutIdx.includes(i) ? 'short' : 'back';
+      if (role === 'back') {
         // Back at the warehouse after 2–3 round trips.
         let day = int(52, 59);
         const trips = rand() < 0.45 ? 3 : 2;
@@ -1135,13 +1271,13 @@
           const dur = int(4, 11);
           const last = t === trips - 1;
           const extra = last && damagedIdx.includes(i)
-            ? { condition: 'DAMAGED', remarks: i === 4 ? 'Corner bent, needs repair' : 'Weld crack on base' }
+            ? { condition: 'DAMAGED', remarks: i === damagedIdx[0] ? 'Corner bent, needs repair' : 'Weld crack on base' }
             : (rand() < 0.15 ? { remarks: 'Came back with other pallets' } : null);
           const back = trip(pid, day, Math.min(dur, day - 1), extra);
           day = back - int(3, 9);
           if (day < 6) break;
         }
-      } else if (i < 24) {
+      } else if (role === 'short') {
         // Out now, for only a few days.
         const loadDay = int(1, 7);
         let day = int(40, 56);
@@ -1150,7 +1286,7 @@
         add(pid, 'LOAD_OUT', loadDay, pick(customers));
       } else {
         // Out for a long time (30–50 days).
-        const k = i - 24;
+        const k = longOutIdx.indexOf(i);
         const loadDay = longOutDays[k];
         if (loadDay <= 46) trip(pid, int(loadDay + 7, 59), int(3, 5));
         add(pid, 'LOAD_OUT', loadDay, longOutParties[k], { remarks: k === 0 ? 'Customer said will return next week' : '' });
@@ -1202,7 +1338,9 @@
     document.body.classList.add('print-' + printParam);
     goTab('qr');
   } else {
-    goTab((location.hash || '#scan').slice(1));
+    // On a computer open the owner's Dashboard; on a phone open Scan.
+    const wide = window.matchMedia('(min-width: 960px)').matches;
+    goTab(location.hash ? location.hash.slice(1) : (wide ? 'dashboard' : 'scan'));
   }
 
   // Exposed for testing in the browser console only.

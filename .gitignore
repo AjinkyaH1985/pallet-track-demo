@@ -1,2 +1,6 @@
 .claude/
 BUILD_BRIEF.md
+*.docx
+*.pdf
+~$*
+proposal/
